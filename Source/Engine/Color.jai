@@ -1,0 +1,14 @@
+COLOR_RED        :: Vector4.{1, 0, 0, 1};
+COLOR_GREEN      :: Vector4.{0, 1, 0, 1};
+COLOR_BLUE       :: Vector4.{0, 0, 1, 1};
+COLOR_WHITE      :: Vector4.{1, 1, 1, 1};
+COLOR_BLACK      :: Vector4.{0, 0, 0, 1};
+COLOR_YELLOW     :: Vector4.{1, 1, 0, 1};
+COLOR_CYAN       :: Vector4.{0, 1, 1, 1};
+COLOR_MAGENTA    :: Vector4.{1, 0, 1, 1};
+COLOR_ORANGE     :: Vector4.{1, 0.5, 0, 1};
+COLOR_PURPLE     :: Vector4.{0.5, 0, 0.5, 1};
+COLOR_PINK       :: Vector4.{1, 0.4, 0.7, 1};
+COLOR_GRAY       :: Vector4.{0.5, 0.5, 0.5, 1};
+COLOR_LIGHT_GRAY :: Vector4.{0.75, 0.75, 0.75, 1};
+COLOR_DARK_GRAY  :: Vector4.{0.25, 0.25, 0.25, 1};
