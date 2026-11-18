@@ -1778,10 +1778,9 @@ BOUNCER_TEXTS :: string.[
 slide_questions :: () {
   ui_spacing(ui.metrics.line_height * 8.0);
   title("Questions?");
-  if ui_button("Reset").clicked {
-    bouncer_count = 0;
-    bouncer_timer = 0.0;
-  }
+  heading("Source code of the UI and this presentation:");
+  point("https://github.com/FranciscoZacarias/imgui-jai-presentation");
+  ui_spacing();
 
   body := slides.body;
   area := body.inner.size;
