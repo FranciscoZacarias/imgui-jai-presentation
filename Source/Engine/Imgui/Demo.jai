@@ -549,6 +549,7 @@ Tree_Canvas :: struct {
   captured:       bool;
   allocated:      int;
   left_to_right:  bool = true;
+  levels:         int;  // how many levels to show from the root; 0 = all
 }
 
 demo_canvas_body :: () {
@@ -557,7 +558,8 @@ demo_canvas_body :: () {
 
 // Draws the subtree under `root` as a diagram you can pan (drag) and zoom (wheel).
 // live: capture the tree again every frame, instead of on 'Recalculate'.
-ui_tree_canvas :: (id: string, canvas: *Tree_Canvas, root: *UI_Node, live := false) {
+ui_tree_canvas :: (id: string, canvas: *Tree_Canvas, root: *UI_Node, live := false, levels := 0) {
+  canvas.levels = levels;
   ui_push_id(id);
   ui_row_begin("canvasbar");
     recalculate := false;
@@ -730,11 +732,12 @@ tree_box_min :: (canvas: *Tree_Canvas, node: Tree_Node) -> Vector2 {
 }
 
 tree_capture :: (canvas: *Tree_Canvas, root: *UI_Node) {
-  count :: (node: *UI_Node) -> int {
+  count :: (node: *UI_Node, depth: int, levels: int) -> int {
     total := 1;
+    if levels > 0 && depth + 1 >= levels  return total;
     child := node.first;
     while child {
-      total += count(child);
+      total += count(child, depth + 1, levels);
       child = child.next;
     }
     return total;
@@ -742,7 +745,7 @@ tree_capture :: (canvas: *Tree_Canvas, root: *UI_Node) {
 
   pool := *canvas.pool;
   reset(pool);
-  node_count := count(root);
+  node_count := count(root, 0, canvas.levels);
   canvas.nodes.data  = get(pool, node_count * size_of(Tree_Node));
   canvas.nodes.count = node_count;
   canvas.max_depth   = 0;
@@ -774,6 +777,7 @@ tree_place :: (canvas: *Tree_Canvas, node: *UI_Node, parent: int, depth: int, ne
 
   first, last: float;
   child := node.first;
+  if canvas.levels > 0 && depth + 1 >= canvas.levels  child = null;  // deeper than asked for
   while child {
     child_breadth := tree_place(canvas, child, index, depth + 1, next_index, next_leaf);
     if item.children == 0  first = child_breadth;
