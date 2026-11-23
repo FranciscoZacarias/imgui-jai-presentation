@@ -72,9 +72,9 @@ UI_Params :: struct {
   foreground: UI_Color_Set;
   border_thickness: float;
   corner_radius:    float;
-  corners:          u8 = R_CORNERS_ALL;
+  corners:          u8 = UI_CORNERS_ALL;
 
-  texture: *Texture;
+  texture: UI_Texture;
   uv_min:  Vector2;
   uv_max:  Vector2 = .{ 1, 1 };
 
@@ -95,7 +95,8 @@ UI_Rect :: struct {
   size: Vector2;
 }
 
-ui_default_atlas: *Texture;
+// The app's texture for the built-in icon atlas (ui_default_atlas_pixels).
+ui_default_atlas: UI_Texture;
 
 ui_debug_node_borders := UI_DEBUG_NODE_BORDERS; // runtime toggle, starts at the compile-time default
 
@@ -147,12 +148,38 @@ UI_Signal :: struct {
   submitted: bool;
 }
 
-UI_Measure_Proc :: #type (text: string) -> (width: float, height: float);
+// Opaque handles. The UI never looks inside them: it stores what the app gives
+// it and hands it back (in UI_Glyph, UI_Quad). What they point at is up to the
+// app - here a renderer Font and Texture, but anything the app can draw with.
+UI_Font    :: #type,distinct *void;
+UI_Texture :: #type,distinct *void;
+
+// Corner bits for UI_Params.corners / UI_Quad.corner_mask.
+UI_CORNER_TL   : u8 : 0x1;
+UI_CORNER_TR   : u8 : 0x2;
+UI_CORNER_BR   : u8 : 0x4;
+UI_CORNER_BL   : u8 : 0x8;
+UI_CORNERS_ALL : u8 : 0xF;
+
+// One glyph of the app's font, as the UI needs it to place a text quad.
+UI_Glyph :: struct {
+  texture: UI_Texture;  // where the glyph's pixels are
+  uv_min:  Vector2;
+  uv_max:  Vector2;
+  size:    Vector2;     // px
+  bearing: Vector2;     // from the pen on the baseline to the glyph's top-left, px
+  advance: float;       // how far the pen moves, px
+}
+
+UI_Measure_Proc :: #type (font: UI_Font, text: string) -> (width: float, height: float);
+UI_Glyph_Proc   :: #type (font: UI_Font, codepoint: u32) -> (found: bool, glyph: UI_Glyph);
 
 UI_Metrics :: struct {
-  font:         *Font;
+  font:         UI_Font;
   line_height:  float = 16.0;
+  ascent:       float;            // baseline offset from the top of a line
   measure_text: UI_Measure_Proc;
+  get_glyph:    UI_Glyph_Proc;
 
   get_clipboard: #type () -> string;
   set_clipboard: #type (text: string);
@@ -228,10 +255,10 @@ UI_Quad :: struct {
   border_color:     Vector4;
   border_thickness: float;
   corner_radius:    float;
-  corner_mask:      u8 = R_CORNERS_ALL;
+  corner_mask:      u8 = UI_CORNERS_ALL;
   rotation:         float;
 
-  texture: *Texture;
+  texture: UI_Texture;  // null = a plain colour; otherwise a handle the app gave the UI
   uv_min:  Vector2;
   uv_max:  Vector2 = .{ 1, 1 };
 }
@@ -330,7 +357,7 @@ ui_begin :: (input: UI_Input, metrics: UI_Metrics) {
 
   #if UI_DEBUG {
     assert(metrics.measure_text != null, "Imgui: UI_Metrics.measure_text is null. Text sizing falls back to a crude fixed-width guess and every layout will be wrong - wire a real measure proc from the host.");
-    assert(metrics.font != null, "Imgui: UI_Metrics.font is null, so no text can be drawn.");
+    assert(metrics.get_glyph != null, "Imgui: UI_Metrics.get_glyph is null, so no text can be drawn - wire a glyph proc from the host.");
   }
 
   array_reset_keeping_memory(*ui.quads);
@@ -1057,7 +1084,7 @@ ui_display_label :: (label: string) -> string {
 ui_measure_display :: (text: string) -> (width: float, height: float) {
   display := ui_display_label(text);
   if ui.metrics.measure_text {
-    width, height := ui.metrics.measure_text(display);
+    width, height := ui.metrics.measure_text(ui.metrics.font, display);
     return width, height;
   }
   return cast(float) display.count * (ui.metrics.line_height * 0.5), ui.metrics.line_height;
@@ -1109,12 +1136,14 @@ ui_overlay_rect :: (rect: UI_Rect, background: Vector4, border: Vector4, thickne
   array_add(*ui.overlay_quads, quad);
 }
 
+// One quad per glyph. The glyphs come from the app (UI_Metrics.get_glyph): the UI
+// only knows a font as a handle.
 ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI_Rect, color: Vector4) {
-  font := ui.metrics.font;
-  if !font  return;
+  metrics := ui.metrics;
+  if !metrics.get_glyph  return;
 
   pen_x := top_left.x;
-  pen_y := top_left.y + font.ascent;
+  pen_y := top_left.y + metrics.ascent;
 
   index := 0;
   while index < text.count {
@@ -1123,18 +1152,19 @@ ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI
 
     if codepoint == #char "\n" {
       pen_x = top_left.x;
-      pen_y += font.line_height;
+      pen_y += metrics.line_height;
       continue;
     }
-    if codepoint < font.first_codepoint || codepoint >= font.first_codepoint + font.num_glyphs  continue;
 
-    glyph := font.glyphs[codepoint - font.first_codepoint];
+    found, glyph := metrics.get_glyph(metrics.font, codepoint);
+    if !found  continue;
+
     if glyph.size.x > 0 && glyph.size.y > 0 {
       quad: UI_Quad;
       quad.rect    = .{ .{ pen_x + glyph.bearing.x, pen_y - glyph.bearing.y }, glyph.size };
       quad.clip    = clip;
       quad.color   = color;
-      quad.texture = font.atlas;
+      quad.texture = glyph.texture;
       quad.uv_min  = glyph.uv_min;
       quad.uv_max  = glyph.uv_max;
       array_add(quads, quad);

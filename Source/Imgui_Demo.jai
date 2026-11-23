@@ -569,7 +569,9 @@ ui_tree_canvas :: (id: string, canvas: *Tree_Canvas, root: *UI_Node, live := fal
     ui_label(tprint("nodes % (allocated %)   depth %   zoom %", canvas.nodes.count, canvas.allocated, canvas.max_depth, formatFloat(canvas.camera.zoom, trailing_width = 3)));
   ui_row_end();
 
-  view  := ui_viewport("canvas", ifx canvas.target then canvas.target.color else null);
+  texture: UI_Texture;
+  if canvas.target  texture = cast(UI_Texture) canvas.target.color;
+  view  := ui_viewport("canvas", texture);
   ui_pop_id();
   size  := view.node.rect.size;
   mouse := ui.input.mouse_pos - view.node.rect.pos;

@@ -29,7 +29,7 @@ ui_flat_pool :: (id: string, pool: *Flat_Pool, loc := #caller_location) {
   ui_shrink_panel_to_content(panel);
 }
 
-ui_viewport :: (id: string, texture: *Texture, flip_v := true, disabled := false, loc := #caller_location) -> UI_Signal {
+ui_viewport :: (id: string, texture: UI_Texture, flip_v := true, disabled := false, loc := #caller_location) -> UI_Signal {
   params: UI_Params;
   params.size.width        = .{ kind = .PARENT_FRACTION, value = 1.0 };
   params.size.height       = .{ kind = .PARENT_FRACTION, value = 1.0 };

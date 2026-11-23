@@ -10,7 +10,8 @@ ui_setup :: () {
   if !ui_font  log("Unable to load the font %", UI_FONT_PATH);
 
   ui_init();
-  ui_default_atlas = r_create_texture_from_pixels(*renderer, "UI Atlas", UI_ATLAS_SIZE, UI_ATLAS_SIZE, ui_default_atlas_pixels);
+  atlas := r_create_texture_from_pixels(*renderer, "UI Atlas", UI_ATLAS_SIZE, UI_ATLAS_SIZE, ui_default_atlas_pixels);
+  ui_default_atlas = cast(UI_Texture) atlas;   // the UI only keeps the handle
 }
 
 ui_frame_begin :: () {
@@ -68,9 +69,11 @@ ui_frame_begin :: () {
   input.text = builder_to_string(*text_builder,, temp);
 
   metrics: UI_Metrics;
-  metrics.font         = ui_font;
+  metrics.font         = cast(UI_Font) ui_font;   // an opaque handle: the UI never looks inside
   metrics.line_height  = ui_font.line_height;
+  metrics.ascent       = ui_font.ascent;
   metrics.measure_text = ui_measure_text;
+  metrics.get_glyph    = ui_get_glyph;
   #if OS == .WINDOWS {
     metrics.get_clipboard = ui_get_clipboard;
     metrics.set_clipboard = ui_set_clipboard;
@@ -85,19 +88,35 @@ ui_frame_end :: () {
 
 ui_draw :: () {
   for quad: ui_quads() {
+    texture := cast(*Texture) quad.texture;   // the handle we gave the UI, back again
     r_push_clip_rect(*renderer, quad.clip.pos, quad.clip.size);
-    r_draw_screen_quad(*renderer, quad.rect.pos, quad.rect.size, tint = quad.color, texture = quad.texture, uv_min = quad.uv_min, uv_max = quad.uv_max,
+    r_draw_screen_quad(*renderer, quad.rect.pos, quad.rect.size, tint = quad.color, texture = texture, uv_min = quad.uv_min, uv_max = quad.uv_max,
                        border_thickness = quad.border_thickness, border_color = quad.border_color, border_radius = quad.corner_radius,
-                       rotation = quad.rotation, corners = quad.corner_mask);
+                       rotation = quad.rotation, corners = quad.corner_mask);  // UI_CORNER_* bits match R_CORNER_*
     r_pop_clip_rect(*renderer);
   }
 }
 
 #scope_file
 
-ui_measure_text :: (text: string) -> (width: float, height: float) {
-  width, height := r_measure_text(ui_font, text);
+ui_measure_text :: (font: UI_Font, text: string) -> (width: float, height: float) {
+  width, height := r_measure_text(cast(*Font) font, text);
   return cast(float) width, cast(float) height;
+}
+
+ui_get_glyph :: (font: UI_Font, codepoint: u32) -> (found: bool, glyph: UI_Glyph) {
+  f := cast(*Font) font;
+  if codepoint < f.first_codepoint || codepoint >= f.first_codepoint + f.num_glyphs  return false, .{};
+
+  g := f.glyphs[codepoint - f.first_codepoint];
+  glyph: UI_Glyph;
+  glyph.texture = cast(UI_Texture) f.atlas;
+  glyph.uv_min  = g.uv_min;
+  glyph.uv_max  = g.uv_max;
+  glyph.size    = g.size;
+  glyph.bearing = g.bearing;
+  glyph.advance = g.advance;
+  return true, glyph;
 }
 
 #if OS == .WINDOWS {

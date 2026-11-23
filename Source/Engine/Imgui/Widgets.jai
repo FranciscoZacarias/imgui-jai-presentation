@@ -326,7 +326,7 @@ ui_progress_bar :: (fraction: float, overlay := "", loc := #caller_location) {
   ui_pop_parent();
 }
 
-ui_image :: (texture: *Texture, size: Vector2, tint := Vector4.{1,1,1,1},
+ui_image :: (texture: UI_Texture, size: Vector2, tint := Vector4.{1,1,1,1},
              uv_min := Vector2.{0,0}, uv_max := Vector2.{1,1}, loc := #caller_location) {
   params: UI_Params;
   params.size.width        = .{ kind = .PIXELS, value = size.x };
@@ -1369,7 +1369,7 @@ window_title_bar :: (id: string, window: *UI_Node, cache: *UI_Node_Cache, focuse
   bar_params.size.height      = .{ kind = .PIXELS, value = ui_title_height() };
   bar_params.axis             = .X;
   bar_params.padding          = UI_CONTROL_PADDING;
-  bar_params.corners          = R_CORNER_TL | R_CORNER_TR;
+  bar_params.corners          = UI_CORNER_TL | UI_CORNER_TR;
   bar := ui_node(id, "titlebar", .HOVERABLE, bar_params, loc);
   ui_push_parent(bar);
 

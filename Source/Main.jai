@@ -28,6 +28,7 @@ DEBUG_MEMORY :: false;
 #load "Engine/Imgui/Imgui.jai";
 
 #load "Imgui_Backend.jai";
+#if IMGUI_DEMO  #load "Imgui_Demo.jai";
 #load "Presentation.jai";
 
 app:      Application;
