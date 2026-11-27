@@ -70,6 +70,7 @@ UI_Params :: struct {
   background: UI_Color_Set;
   border:     UI_Color_Set;
   foreground: UI_Color_Set;
+  text_scale: float = 1.0;  // draws the text smaller or bigger than the font
   border_thickness: float;
   corner_radius:    float;
   corners:          u8 = UI_CORNERS_ALL;
@@ -171,15 +172,14 @@ UI_Glyph :: struct {
   advance: float;       // how far the pen moves, px
 }
 
-UI_Measure_Proc :: #type (font: UI_Font, text: string) -> (width: float, height: float);
-UI_Glyph_Proc   :: #type (font: UI_Font, codepoint: u32) -> (found: bool, glyph: UI_Glyph);
+// The only font callback: text is measured from the glyph advances (ui_measure_text).
+UI_Glyph_Proc :: #type (font: UI_Font, codepoint: u32) -> (found: bool, glyph: UI_Glyph);
 
 UI_Metrics :: struct {
-  font:         UI_Font;
-  line_height:  float = 16.0;
-  ascent:       float;            // baseline offset from the top of a line
-  measure_text: UI_Measure_Proc;
-  get_glyph:    UI_Glyph_Proc;
+  font:        UI_Font;
+  line_height: float = 16.0;
+  ascent:      float;             // baseline offset from the top of a line
+  get_glyph:   UI_Glyph_Proc;
 
   get_clipboard: #type () -> string;
   set_clipboard: #type (text: string);
@@ -356,8 +356,7 @@ ui_begin :: (input: UI_Input, metrics: UI_Metrics) {
   ui.metrics = metrics;
 
   #if UI_DEBUG {
-    assert(metrics.measure_text != null, "Imgui: UI_Metrics.measure_text is null. Text sizing falls back to a crude fixed-width guess and every layout will be wrong - wire a real measure proc from the host.");
-    assert(metrics.get_glyph != null, "Imgui: UI_Metrics.get_glyph is null, so no text can be drawn - wire a glyph proc from the host.");
+    assert(metrics.get_glyph != null, "Imgui: UI_Metrics.get_glyph is null, so no text can be measured or drawn - wire a glyph proc from the host.");
   }
 
   array_reset_keeping_memory(*ui.quads);
@@ -570,7 +569,7 @@ ui_node_keyed :: (key: u64, label: string, flags: UI_Node_Flags, params: UI_Para
 
   if flags & .DRAW_TEXT || params.size.width.kind == .TEXT || params.size.height.kind == .TEXT {
     w, h := ui_measure_display(node.text);
-    node.text_size = .{ w, h };
+    node.text_size = .{ w * params.text_scale, h * params.text_scale };
   }
 
   total_size := ifx floating then parent.rect.size else parent.inner.size;
@@ -980,6 +979,20 @@ ui_cache_get :: (key: u64) -> *UI_Node_Cache {
   return cache;
 }
 
+// The entry for a key, or null. Unlike ui_cache_get, it never creates one and
+// does not count as a use.
+ui_cache_find :: (key: u64) -> *UI_Node_Cache {
+  found := table_find_pointer(*ui.caches, key);
+  if found  return found.*;
+  return null;
+}
+
+// Close enough that the eye can't tell: an animation has settled.
+ui_color_close :: (a: Vector4, b: Vector4) -> bool {
+  EPSILON :: 1.0 / 512.0;
+  return abs(a.x - b.x) < EPSILON && abs(a.y - b.y) < EPSILON && abs(a.z - b.z) < EPSILON && abs(a.w - b.w) < EPSILON;
+}
+
 ui_purge_caches :: () {
   for cache, key: ui.caches {
     if ui.frame - cache.last_touched > UI_CACHE_TTL_FRAMES {
@@ -1082,12 +1095,36 @@ ui_display_label :: (label: string) -> string {
 }
 
 ui_measure_display :: (text: string) -> (width: float, height: float) {
-  display := ui_display_label(text);
-  if ui.metrics.measure_text {
-    width, height := ui.metrics.measure_text(ui.metrics.font, display);
-    return width, height;
+  width, height := ui_measure_text(ui_display_label(text));
+  return width, height;
+}
+
+// The size of a text in the app's font: the glyph advances added up (the same
+// pen moves ui_push_text makes), one line_height per line.
+ui_measure_text :: (text: string) -> (width: float, height: float) {
+  metrics := ui.metrics;
+  if !metrics.get_glyph || text.count == 0  return 0.0, 0.0;
+
+  widest := 0.0;
+  width  := 0.0;
+  lines  := 1;
+  index  := 0;
+  while index < text.count {
+    codepoint, size := utf8_decode(text, index);
+    index += size;
+
+    if codepoint == #char "\n" {
+      widest = max(widest, width);
+      width  = 0.0;
+      lines += 1;
+      continue;
+    }
+
+    found, glyph := metrics.get_glyph(metrics.font, codepoint);
+    if found  width += glyph.advance;
   }
-  return cast(float) display.count * (ui.metrics.line_height * 0.5), ui.metrics.line_height;
+  widest = max(widest, width);
+  return widest, lines * metrics.line_height;
 }
 
 ui_snap :: (v: Vector2) -> Vector2 {
@@ -1138,12 +1175,14 @@ ui_overlay_rect :: (rect: UI_Rect, background: Vector4, border: Vector4, thickne
 
 // One quad per glyph. The glyphs come from the app (UI_Metrics.get_glyph): the UI
 // only knows a font as a handle.
-ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI_Rect, color: Vector4) {
+// scale draws the glyphs smaller or bigger than the font (UI_Params.text_scale).
+ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI_Rect, color: Vector4, scale := 1.0) {
   metrics := ui.metrics;
   if !metrics.get_glyph  return;
 
   pen_x := top_left.x;
-  pen_y := top_left.y + metrics.ascent;
+  pen_y := top_left.y + metrics.ascent * scale;
+  if scale != 1.0  pen_y = floor(pen_y + 0.5);   // keep the baseline on a pixel
 
   index := 0;
   while index < text.count {
@@ -1152,7 +1191,7 @@ ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI
 
     if codepoint == #char "\n" {
       pen_x = top_left.x;
-      pen_y += metrics.line_height;
+      pen_y += metrics.line_height * scale;
       continue;
     }
 
@@ -1161,7 +1200,7 @@ ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI
 
     if glyph.size.x > 0 && glyph.size.y > 0 {
       quad: UI_Quad;
-      quad.rect    = .{ .{ pen_x + glyph.bearing.x, pen_y - glyph.bearing.y }, glyph.size };
+      quad.rect    = .{ .{ pen_x + glyph.bearing.x * scale, pen_y - glyph.bearing.y * scale }, glyph.size * scale };
       quad.clip    = clip;
       quad.color   = color;
       quad.texture = glyph.texture;
@@ -1169,7 +1208,7 @@ ui_push_text :: (quads: *[..] UI_Quad, text: string, top_left: Vector2, clip: UI
       quad.uv_max  = glyph.uv_max;
       array_add(quads, quad);
     }
-    pen_x += glyph.advance;
+    pen_x += glyph.advance * scale;
   }
 }
 
@@ -1381,18 +1420,36 @@ ui_emit :: (node: *UI_Node, parent_alpha: float = 1.0, parent_disabled := false)
   border     := ui_state_color(node.border,     state);
   foreground := ui_state_color(node.foreground, state);
 
+  // Only a node whose colours are moving needs a cache entry: hovered, pressed,
+  // or still fading back. A node at rest keeps none; once it settles it stops
+  // touching its entry, and the purge frees it.
   if node.params.animate {
-    cache := ui_cache_get(node.key);
-    if !cache.animated_ready {
-      cache.animated_background = background; cache.animated_border = border; cache.animated_foreground = foreground;
-      cache.animated_ready = true;
-    } else {
+    cache  := ui_cache_find(node.key);
+    resting := state == .NORMAL;
+    if !resting || (cache && cache.animated_ready) {
+      if !cache  cache = ui_cache_get(node.key);
+      if !cache.animated_ready {   // start from the resting colours
+        cache.animated_background = ui_state_color(node.background, .NORMAL);
+        cache.animated_border     = ui_state_color(node.border,     .NORMAL);
+        cache.animated_foreground = ui_state_color(node.foreground, .NORMAL);
+        cache.animated_ready      = true;
+      }
+      cache.last_touched = ui.frame;
+
       t := ui_animation_t(ui.input.dt);
       cache.animated_background = ui_mix(cache.animated_background, background, t);
       cache.animated_border     = ui_mix(cache.animated_border,     border,     t);
       cache.animated_foreground = ui_mix(cache.animated_foreground, foreground, t);
+
+      settled := ui_color_close(cache.animated_background, background) &&
+                 ui_color_close(cache.animated_border,     border)     &&
+                 ui_color_close(cache.animated_foreground, foreground);
+      if resting && settled {
+        cache.animated_ready = false;
+      } else {
+        background = cache.animated_background; border = cache.animated_border; foreground = cache.animated_foreground;
+      }
     }
-    background = cache.animated_background; border = cache.animated_border; foreground = cache.animated_foreground;
   }
 
   if alpha < 1.0 {
@@ -1460,7 +1517,7 @@ ui_emit :: (node: *UI_Node, parent_alpha: float = 1.0, parent_disabled := false)
     if node.flags & .TEXT_CENTER_X  text_x = node.rect.pos.x + (node.rect.size.x - text_width) * 0.5;
     if node.flags & .TEXT_CENTER_Y  text_y = node.rect.pos.y + (node.rect.size.y - text_height) * 0.5;
 
-    ui_push_text(*ui.quads, ui_display_label(node.text), .{ text_x, text_y }, node.clip, foreground);
+    ui_push_text(*ui.quads, ui_display_label(node.text), .{ text_x, text_y }, node.clip, foreground, node.params.text_scale);
   }
 
   if node.flags & .DRAW_LINES && node.params.points.count >= 2 && clipped {

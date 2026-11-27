@@ -69,11 +69,10 @@ ui_frame_begin :: () {
   input.text = builder_to_string(*text_builder,, temp);
 
   metrics: UI_Metrics;
-  metrics.font         = cast(UI_Font) ui_font;   // an opaque handle: the UI never looks inside
-  metrics.line_height  = ui_font.line_height;
-  metrics.ascent       = ui_font.ascent;
-  metrics.measure_text = ui_measure_text;
-  metrics.get_glyph    = ui_get_glyph;
+  metrics.font        = cast(UI_Font) ui_font;   // an opaque handle: the UI never looks inside
+  metrics.line_height = ui_font.line_height;
+  metrics.ascent      = ui_font.ascent;
+  metrics.get_glyph   = ui_get_glyph;
   #if OS == .WINDOWS {
     metrics.get_clipboard = ui_get_clipboard;
     metrics.set_clipboard = ui_set_clipboard;
@@ -98,11 +97,6 @@ ui_draw :: () {
 }
 
 #scope_file
-
-ui_measure_text :: (font: UI_Font, text: string) -> (width: float, height: float) {
-  width, height := r_measure_text(cast(*Font) font, text);
-  return cast(float) width, cast(float) height;
-}
 
 ui_get_glyph :: (font: UI_Font, codepoint: u32) -> (found: bool, glyph: UI_Glyph) {
   f := cast(*Font) font;

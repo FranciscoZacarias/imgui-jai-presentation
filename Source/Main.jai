@@ -38,6 +38,8 @@ FRAME_CAP_UNLIMITED :: 257; // frame_cap at or above this = no cap
 frame_cap := FRAME_CAP_UNLIMITED;
 
 main :: () {
+  app.window_width  = 1920;
+  app.window_height = 1080;
   app_init(*app, "Imgui Presentation");
   r_init(*renderer);
   ui_setup();

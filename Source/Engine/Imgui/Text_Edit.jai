@@ -315,15 +315,13 @@ ui_edit_insert :: (edit: UI_Edit, at: s64, text: string) -> s64 {
 }
 
 ui_prefix_width :: (edit: UI_Edit, from: s64, to: s64) -> float {
-  measure := ui.metrics.measure_text;
-  if !measure || to <= from  return 0.0;
+  if to <= from  return 0.0;
   slice: string; slice.data = edit.data + from; slice.count = to - from;
-  return measure(ui.metrics.font, slice);
+  width, _ := ui_measure_text(slice);
+  return width;
 }
 
 ui_column_hit :: (edit: UI_Edit, low: s64, high: s64, target_x: float) -> s64 {
-  measure := ui.metrics.measure_text;
-  if !measure  return low;
   best_offset   := low;
   best_distance := abs(target_x);
   accumulated_x := 0.0;
@@ -331,7 +329,8 @@ ui_column_hit :: (edit: UI_Edit, low: s64, high: s64, target_x: float) -> s64 {
   while offset < high {
     next_offset := ui_codepoint_next(edit.data, high, offset);
     segment: string; segment.data = edit.data + offset; segment.count = next_offset - offset;
-    accumulated_x += measure(ui.metrics.font, segment);
+    segment_width, _ := ui_measure_text(segment);
+    accumulated_x += segment_width;
     distance := abs(target_x - accumulated_x);
     if distance < best_distance { best_distance = distance; best_offset = next_offset; }
     offset = next_offset;

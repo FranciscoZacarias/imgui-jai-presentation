@@ -5,31 +5,26 @@ presentation :: () {
     if slide("Topics")                                        slide_topics();
 
     // Part 1: What and why
-    if slide("Retained vs immediate")                         slide_retained_vs_immediate();
-    if slide("What the API looks like")                       slide_live_demo();
     stop();
-    if slide("Where this comes from")                         slide_prior_art();
+    if slide("Retained vs immediate")                         slide_retained_vs_immediate();
 
     // Part 2: The frame
-    if slide("Part 1: One frame")                                     slide_one_frame();
-    if slide("Handles: how the UI talks to the renderer")     slide_handles();
+    if slide("Part 1: One frame")                             slide_one_frame();
     if slide("UI_Context")                                    slide_context();
     stop();
     if slide("Part 2, as code")                               slide_recap_2();
 
     // Part 3: Building the tree
     if slide("The node")                                      slide_anatomy();
+    if slide("Keys")                                          slide_keys();
     if slide("The tree is intrusive")                         slide_intrusive();
     if slide("Building the tree")                             slide_tree();
-    if slide("Where nodes live")                              slide_memory();
-    if slide("Keys")                                          slide_keys();
     stop();
     if slide("Part 3, as code")                               slide_recap_3();
 
     // Part 4: From tree to screen
     if slide("ui_node: where it all happens")                 slide_ui_node();
     if slide("Layout")                                        slide_layout();
-    if slide("Behaviour from flags")                          slide_flags();
     if slide("Depth instead of sorting")                      slide_depth();
     if slide("Signals")                                       slide_signals();
     if slide("Rendering")                                     slide_rendering();
@@ -309,6 +304,12 @@ split_end :: () {
   ui_shrink_row_to_content(ui_pop_parent());
 }
 
+// The height left in the current column, down to the bottom of the slide. For
+// widgets that use all the space they get, like the tree canvases.
+column_height_left :: () -> float {
+  return max(ui.metrics.line_height * 12.0, ui_provisional_panel_height(ui_parent()) - slide_gap());
+}
+
 split_cell :: () {
   params: UI_Params;
   params.name        = "Column";
@@ -367,7 +368,7 @@ inspector :: () {
       depth := 0;
       walk := selected;
       while walk && depth < chain.count { chain[depth] = walk; depth += 1; walk = walk.parent; }
-      for < i: depth-1..0 {
+      for < i: 0..depth-1 {
         for 1..depth - 1 - i  append(*path, "  ");
         append(*path, tree_label(chain[i]));
         if i > 0  append(*path, "\n");
@@ -484,7 +485,7 @@ sample :: (sampler: *Sampler, v: float, hz: float) {
 
 slide_title :: () {
   ui_spacing(ui.metrics.line_height * 6.0);
-  title("Building an immediate mode UI from scratch... Presented in itself!");
+  title("Building an immediate mode UI from scratch");
   ui_spacing(ui.metrics.line_height * 2.0);
   point("Francisco Zacarias, 1st December 2026");
 }
@@ -512,8 +513,11 @@ slide_topics :: () {
 // Part 1: What and why
 // ---------------------------------------------------------------------------
 
-rvi_dirty := true;
-rvi_saves := 0;
+Rvi_Settings :: struct {
+  volume: float = 0.5;
+  mute:   bool  = false;
+}
+rvi_settings: Rvi_Settings;
 
 slide_retained_vs_immediate :: () {
   title("Retained vs immediate");
@@ -524,62 +528,16 @@ slide_retained_vs_immediate :: () {
     heading("Retained (a typical toolkit)");
     code(CODE_RETAINED);
   split_next();
-    heading("Immediate (ours)");
+    heading("Immediate");
     code(CODE_IMMEDIATE);
-    heading("Live: that code");
-    ui_checkbox("document dirty", *rvi_dirty);
-    if ui_button("Save", disabled = !rvi_dirty).clicked {
-      rvi_dirty = false;
-      rvi_saves += 1;
-    }
-    value("saves", tprint("saved % time(s)", rvi_saves));
-  split_end();
-}
-
-live_clicks  := 0;
-live_value   := 0.5;
-live_toggle  := true;
-live_pick    := 1;
-live_color   := Vector4.{ 0.30, 0.55, 0.95, 1.0 };
-live_count   := 7;
-live_name:     UI_Text_Buffer(64);
-
-slide_live_demo :: () {
-  title("What the API looks like");
-  split_begin("live");
-    code(CODE_USER);
-  split_next();
-    heading("Live: that code");
-    if ui_button("Click me").clicked {
-      live_clicks += 1;
-    }
-    value("clicks", tprint("clicked % times", live_clicks));
-    ui_slider("Value", *live_value, 0.0, 1.0);
-    ui_toggle("Toggle", *live_toggle);
-    ui_progress_bar(live_value);
-    ui_combo("Quality", *live_pick, string.[ "Low", "Medium", "High", "Ultra" ]);
-    ui_drag_number("Count", *live_count, 0.2, 0, 100);
-    ui_text_input("Name", *live_name, "type a name");
-    ui_color_edit("Colour", *live_color);
-    if live_toggle {
-      ui_label("Hello, Sailor!");
+    ui_spacing();
+    heading("Live: the result, the same for both");
+    ui_checkbox("Mute", *rvi_settings.mute);
+    ui_slider("Volume", *rvi_settings.volume, 0.0, 1.0, disabled = rvi_settings.mute);
+    if ui_button("Reset").clicked {
+      rvi_settings = .{};
     }
   split_end();
-}
-
-slide_prior_art :: () {
-  title("Where this comes from");
-  heading("2005  Casey Muratori");
-  point("A widget is a function call: draw + input, every frame, no objects");
-  ui_spacing();
-  heading("2014  Dear ImGui");
-  point("One function per widget type, returns a bool");
-  ui_spacing();
-  heading("2024  RAD Debugger");
-  point("One generic box + flags, widgets return a signal, state cached by key");
-  ui_spacing();
-  heading("This implementation");
-  point("RAD's architecture, with lazy layout");
 }
 
 // The data behind the real widgets on every "Part N, as code" slide.
@@ -604,8 +562,9 @@ slide_one_frame :: () {
     point("ui_end: output quads for the app to draw");
     point("The UI never touches the GPU, the OS or the font system");
     ui_spacing();
-    heading("The app implements the font side");
+    heading("The app gives the UI its letters");
     code(CODE_APP_PROVIDES);
+    point("The UI measures text itself: it adds up the advances");
   split_next();
     heading("Live: this frame's UI_Input  (click, scroll, type)");
     if ui.input.mouse_pressed[0] {
@@ -626,47 +585,12 @@ slide_one_frame :: () {
     value("dt",      tprint("dt              % ms", formatFloat(ui.input.dt * 1000.0, trailing_width = 2)));
     ui_spacing();
 
-    heading("Live: measure_text  (try the font size in the bottom bar)");
+    heading("Live: text measured by the UI  (try the font size in the bottom bar)");
     if !measure_sample.count  ui_text_set(*measure_sample, "Hello, Flying Rat!");
     ui_text_input("measure_sample", *measure_sample, "type something");
-    width, height := ui.metrics.measure_text(ui.metrics.font, ui_text(*measure_sample));
+    width, height := ui_measure_text(ui_text(*measure_sample));
     value("measured", tprint("width %, height %", cast(int) width, cast(int) height));
   split_end();
-}
-
-slide_handles :: () {
-  title("Handles: how the UI talks to the renderer");
-  split_begin("handles", 0.5);
-    point("The UI holds opaque handles: UI_Font, UI_Texture");
-    code(CODE_HANDLES);
-    point("The app sets them; the UI never looks inside");
-    code(CODE_HANDLES_APP);
-  split_next();
-    handles_diagram();
-    ui_spacing();
-    heading("Live: to the UI they are just numbers");
-    value("h_font",  tprint("ui.metrics.font    %", hex(cast(u64) ui.metrics.font)));
-    value("h_atlas", tprint("ui_default_atlas   %", hex(cast(u64) ui_default_atlas)));
-  split_end();
-}
-
-// The app's font pointer, cast into a handle the UI keeps.
-handles_diagram :: () {
-  area_params := ui_box_params(ui_theme.slider_track, ui_theme.button_border);
-  area_params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
-  area_params.size.height = .{ kind = .PIXELS, value = ui.metrics.line_height * 6.0 };
-  area := ui_node("handles_area", 0, area_params);
-  ui_push_parent(area);
-    size := area.rect.size;
-    box  := Vector2.{ floor(size.x * 0.32), floor(ui_row_height() * 2.2) };
-    app    := Vector2.{ size.x * 0.22, size.y * 0.5 };
-    the_ui := Vector2.{ size.x * 0.78, size.y * 0.5 };
-
-    star_arrow(0, area, app, the_ui, box, "cast(UI_Font)", FIRST_COLOR);
-
-    star_box(0, area, app,    box, "app: *Font",  FIRST_COLOR);
-    star_box(1, area, the_ui, box, "UI: UI_Font", ui_theme.accent);
-  ui_pop_parent();
 }
 
 ctx_text: UI_Text_Buffer(64);
@@ -712,22 +636,21 @@ slide_context :: () {
     point("The library's internal state: one global");
     point("ui_begin / ui_end work on it, every widget function uses it");
   split_next();
+    heading("Change the keys");
+    ui_text_input("ctx_text", *ctx_text, "click here to take keyboard focus");
+    ui_button("Hold me");
+    sub("while held, active_key is this button");
+    ui_spacing();
     heading("Live: what it holds right now  (drag, wheel to zoom)");
     ctx_root := ctx_map();
     canvas_params: UI_Params;
     canvas_params.name        = "Context canvas";
     canvas_params.spacing     = UI_STACK_SPACING;
     canvas_params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
-    canvas_params.size.height = .{ kind = .PIXELS, value = ui.metrics.line_height * 18.0 };
+    canvas_params.size.height = .{ kind = .PIXELS, value = column_height_left() };
     ui_push_parent(ui_node("ctx_canvas_box", 0, canvas_params));
       ui_tree_canvas("ctx", *ctx_canvas, ctx_root, live = true);
     ui_pop_parent();
-    ui_spacing();
-    heading("Change the keys");
-    ui_text_input("ctx_text", *ctx_text, "click here to take keyboard focus");
-    if ui_button("Hold me").held {
-      ui_label("'active' is this button while held");
-    }
   split_end();
 }
 
@@ -735,7 +658,7 @@ slide_recap_2 :: () {
   title("Part 2, as code: the frame");
   split_begin("recap_2", 0.6);
     heading("The library (mock)");
-    code(MOCK_2);
+    code(MOCK_2, "A mock: the shape of it, not the real code");
   split_next();
     heading("The real widgets");
     ui_slider("Volume", *recap_volume, 0.0, 1.0);
@@ -765,6 +688,11 @@ anatomy_padding  := 14.0;
 anatomy_children := 3;
 anatomy_width    := 260.0;
 
+first_clickable := true;
+first_hoverable := true;
+first_draw_text := true;
+first_floating  := false;
+
 slide_anatomy :: () {
   title("The node: one generic primitive");
   split_begin("anatomy", 0.45);
@@ -772,6 +700,8 @@ slide_anatomy :: () {
     point("A node is a rectangle, maybe some text, and flags for behaviour");
     sub("a widget is just a function that creates nodes");
     code(CODE_NODE);
+    point("Each flag is implemented once, in the core; widgets just pick flags");
+    code(CODE_FLAGS);
   split_next();
     heading("Live: one parent, a few children  (try children wider than it)");
     ui_slider("padding",      *anatomy_padding,  0.0, 40.0);
@@ -782,6 +712,14 @@ slide_anatomy :: () {
     colored_checkbox("clip:   the visible part",          CLIP_COLOR,   *show_clip);
     colored_checkbox("cursor: where the next child goes", CURSOR_COLOR, *show_cursor);
     ui_spacing();
+    heading("Live: Behaviour and layout");
+    ui_row_begin("first_child_flags", spacing = ui.metrics.line_height);
+      ui_checkbox("CLICKABLE", *first_clickable);
+      ui_checkbox("HOVERABLE", *first_hoverable);
+      ui_checkbox("DRAW_TEXT", *first_draw_text);
+      ui_checkbox("FLOATING",  *first_floating);
+    ui_row_end();
+    ui_spacing();
 
     parent_params := ui_box_params(ui_theme.window_background, ui_theme.window_border);
     parent_params.name        = "parent";
@@ -791,6 +729,7 @@ slide_anatomy :: () {
     parent_params.size.height = .{ kind = .PIXELS, value = ui.metrics.line_height * 13.0 };
     parent := ui_node("anatomy_parent", 0, parent_params);
     ui_push_parent(parent);
+      first_child: *UI_Node;
       for 0..anatomy_children - 1 {
         child := ui_box_params(ui_theme.button, ui_theme.button_border);
         child.name        = "child";
@@ -798,9 +737,32 @@ slide_anatomy :: () {
         child.foreground  = ui_theme.text;
         child.size.width  = .{ kind = .PIXELS, value = anatomy_width };
         child.size.height = .{ kind = .PIXELS, value = ui_row_height() };
-        ui_node("anatomy_child", "c", it, .DRAW_TEXT | .TEXT_CENTER_X | .TEXT_CENTER_Y, child);
+
+        flags: UI_Node_Flags = .DRAW_TEXT | .TEXT_CENTER_X | .TEXT_CENTER_Y;
+        if it == 0 {
+          flags = .TEXT_CENTER_X | .TEXT_CENTER_Y;
+          if first_clickable {
+            flags |= .CLICKABLE;
+          }
+          if first_hoverable {
+            flags |= .HOVERABLE;
+          }
+          if first_draw_text {
+            flags |= .DRAW_TEXT;
+          }
+          if first_floating {
+            flags |= .FLOATING;
+            child.offset = .{ anatomy_padding + 40.0, ui_row_height() * 4.0 };
+          }
+        }
+        node := ui_node("anatomy_child", "c", it, flags, child);
+        if it == 0  first_child = node;
       }
     ui_pop_parent();
+
+    signal := ui_signal_from_node(first_child);
+    value("first_signal", tprint("first child:  hovered %   held %", signal.hovered, signal.held));
+    sub("FLOATING: leaves the layout, placed at an offset");
 
     none      := Vector4.{ 0, 0, 0, 0 };
     clip_fill := Vector4.{ CLIP_COLOR.x, CLIP_COLOR.y, CLIP_COLOR.z, 0.25 };
@@ -839,6 +801,43 @@ colored_checkbox :: (text: string, color: Vector4, value: *bool, loc := #caller_
     ui_checkbox(text, value, loc = loc);
   ui_row_end();
 }
+
+slide_keys :: () {
+  title("Keys");
+  split_begin("keys");
+    point("Each node gets a key when it is created:");
+    point("key = hash( parent's key, text, call site )");
+    ui_spacing();
+    heading("Same text, different lines: different keys");
+    code(CODE_KEY_SAME_TEXT);
+    ui_spacing();
+    heading("Conflict: same text, same line, in a loop");
+    point("Fix: push an id, so the index goes into the hash");
+    code(CODE_KEY_LOOP);
+  split_next();
+    heading("Live: the code on the left");
+    ui_row_begin("row");
+      first:  UI_Signal = ui_button("Save");
+      second: UI_Signal = ui_button("Save");
+    ui_row_end();
+    value("k_first",  tprint("first.node.key    %", hex(first.node.key)));
+    value("k_second", tprint("second.node.key   %", hex(second.node.key)));
+    ui_spacing(ui.metrics.line_height * 3.0);
+    keys: [3] u64;
+    ui_row_begin("loop");
+      for i: 0..2 {
+        ui_push_id(i);
+        item: UI_Signal = ui_button("Item");
+        ui_pop_id();
+        keys[i] = item.node.key;
+      }
+    ui_row_end();
+    value("k_item_0", tprint("item 0 key        %", hex(keys[0])));
+    value("k_item_1", tprint("item 1 key        %", hex(keys[1])));
+    value("k_item_2", tprint("item 2 key        %", hex(keys[2])));
+  split_end();
+}
+
 
 
 PARENT_COLOR :: Vector4.{ 1.0,  0.40, 0.40, 1.0 };
@@ -884,11 +883,6 @@ slide_intrusive :: () {
     pointer_line("last",   shown.last,   LAST_COLOR);
     pointer_line("prev",   shown.prev,   PREV_COLOR);
     pointer_line("next",   shown.next,   NEXT_COLOR);
-    ui_spacing();
-    heading("Linking a new node in");
-    code(CODE_INTRUSIVE);
-    heading("Walking the children");
-    code(CODE_WALK);
   split_end();
 }
 
@@ -1035,22 +1029,22 @@ slide_tree :: () {
     heading("Live: that code");
     mini := mini_settings_ui();
     ui_spacing();
+    heading("The parent stack at the marked line (top first)");
+    for < i: 0..stack_snapshot_count - 1 {
+      ui_push_id(i);
+        value("entry", tprint("[%]  %", i, stack_snapshot[i]));
+      ui_pop_id();
+    }
+    ui_spacing();
     heading("The tree it builds  (drag, wheel to zoom)");
     canvas_params: UI_Params;
     canvas_params.name        = "Tree canvas";
     canvas_params.spacing     = UI_STACK_SPACING;
     canvas_params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
-    canvas_params.size.height = .{ kind = .PIXELS, value = ui.metrics.line_height * 18.0 };
+    canvas_params.size.height = .{ kind = .PIXELS, value = column_height_left() };
     ui_push_parent(ui_node("mini_canvas_box", 0, canvas_params));
       ui_tree_canvas("mini", *mini_canvas, mini, live = true);
     ui_pop_parent();
-    ui_spacing();
-    heading("The parent stack at the marked line (top first)");
-    for < i: stack_snapshot_count - 1..0 {
-      ui_push_id(i);
-        value("entry", tprint("[%]  %", i, stack_snapshot[i]));
-      ui_pop_id();
-    }
   split_end();
 }
 
@@ -1079,65 +1073,11 @@ mini_settings_ui :: (width := 340.0, padding := UI_PANEL_PADDING, spacing := UI_
   return panel;
 }
 
-slide_memory :: () {
-  title("Where nodes live");
-  split_begin("memory", 0.5);
-    point("Nodes are allocated on the heap, a new set every frame");
-    code(CODE_ALLOC);
-  split_next();
-    nodes      := ui.stats.nodes;
-    node_bytes := size_of(UI_Node);
-    heading("Live: this frame");
-    value("node_size",  tprint("size_of(UI_Node)    % bytes", node_bytes));
-    value("node_count", tprint("nodes last frame    %", nodes));
-    value("node_total", tprint("nodes x size        % KB", (nodes * node_bytes) / 1024));
-    ui_spacing();
-    heading("My frame arena  (hover the bars)");
-    ui_flat_pool("frame arena", *ui.frame_pool);
-  split_end();
-}
-
-slide_keys :: () {
-  title("Keys");
-  split_begin("keys");
-    point("Each node gets a key when it is created:");
-    point("key = hash( parent's key, text, call site )");
-    ui_spacing();
-    heading("Same text, different lines: different keys");
-    code(CODE_KEY_SAME_TEXT);
-    ui_spacing();
-    heading("Conflict: same text, same line, in a loop");
-    point("Fix: push an id, so the index goes into the hash");
-    code(CODE_KEY_LOOP);
-  split_next();
-    heading("Live: the code on the left");
-    ui_row_begin("row");
-      first:  UI_Signal = ui_button("Save");
-      second: UI_Signal = ui_button("Save");
-    ui_row_end();
-    value("k_first",  tprint("first.node.key    %", hex(first.node.key)));
-    value("k_second", tprint("second.node.key   %", hex(second.node.key)));
-    ui_spacing(ui.metrics.line_height * 3.0);
-    keys: [3] u64;
-    ui_row_begin("loop");
-      for i: 0..2 {
-        ui_push_id(i);
-        item: UI_Signal = ui_button("Item");
-        ui_pop_id();
-        keys[i] = item.node.key;
-      }
-    ui_row_end();
-    value("k_item_0", tprint("item 0 key        %", hex(keys[0])));
-    value("k_item_1", tprint("item 1 key        %", hex(keys[1])));
-    value("k_item_2", tprint("item 2 key        %", hex(keys[2])));
-  split_end();
-}
-
 slide_recap_3 :: () {
   title("Part 3, as code: the tree");
   split_begin("recap_3", 0.6);
     heading("The library (mock)");
-    code(MOCK_3);
+    code(MOCK_3, "A mock: the shape of it, not the real code");
   split_next();
     heading("The real widgets");
     ui_slider("Volume", *recap_volume, 0.0, 1.0);
@@ -1154,7 +1094,7 @@ slide_recap_3 :: () {
 // ---------------------------------------------------------------------------
 
 slide_ui_node :: () {
-  title("ui_node: where it all happens");
+  title("ui_node: the core building function");
   point("Every node on screen went through this one function");
   split_begin("ui_node", 0.58);
     code(CODE_UI_NODE);
@@ -1162,7 +1102,7 @@ slide_ui_node :: () {
     heading("Each step, and where it is explained");
     point("1. key            Keys");
     point("2. parent         Building the tree");
-    point("3. allocate       Where nodes live");
+    point("3. allocate       a new node every frame");
     point("4. copy params    Style");
     point("5. depth          Depth");
     point("6. link           The tree is intrusive");
@@ -1234,70 +1174,6 @@ layout_split_demo :: () {
 
     ui_pop_parent();
   ui_pop_parent();
-}
-
-pg_clickable     := true;
-pg_hoverable     := true;
-pg_floating      := false;
-pg_draw_text     := true;
-pg_text_center_x := true;
-
-flag_saves := 0;
-
-// Must match CODE_FLAG_BUTTON: a complete button, from one node and a few flags.
-flag_button :: (text: string, loc := #caller_location) -> bool {
-  flags: UI_Node_Flags = .CLICKABLE | .HOVERABLE | .DRAW_TEXT | .TEXT_CENTER_X | .TEXT_CENTER_Y;
-  params: UI_Params = ui_box_params(ui_theme.button, ui_theme.button_border);
-  params.text        = text;
-  params.foreground  = ui_theme.text;
-  params.size.width  = .{ kind = .TEXT, value = ui.metrics.line_height * 2.0 };
-  params.size.height = .{ kind = .TEXT, value = ui.metrics.line_height * 0.6 };
-  node: *UI_Node = ui_node(text, flags, params, loc);
-  return ui_signal_from_node(node).clicked;
-}
-
-slide_flags :: () {
-  title("Behaviour = flags on a node");
-  split_begin("flags");
-    code(CODE_FLAGS);
-    point("Each flag is implemented once, in the core");
-    point("Widgets just pick flags. A whole button:");
-    code(CODE_FLAG_BUTTON);
-    heading("Live: that button");
-    if flag_button("Save") {
-      flag_saves += 1;
-    }
-    value("flag_saves", tprint("saved % time(s)", flag_saves));
-  split_next();
-    heading("Live: one node, change its flags");
-    ui_checkbox("CLICKABLE",     *pg_clickable);
-    ui_checkbox("HOVERABLE",     *pg_hoverable);
-    ui_checkbox("FLOATING",      *pg_floating);
-    ui_checkbox("DRAW_TEXT",     *pg_draw_text);
-    ui_checkbox("TEXT_CENTER_X", *pg_text_center_x);
-    ui_spacing();
-
-    flags: UI_Node_Flags = .TEXT_CENTER_Y;
-    if pg_clickable      flags |= .CLICKABLE;
-    if pg_hoverable      flags |= .HOVERABLE;
-    if pg_floating       flags |= .FLOATING;
-    if pg_draw_text      flags |= .DRAW_TEXT;
-    if pg_text_center_x  flags |= .TEXT_CENTER_X;
-
-    params := ui_box_params(ui_theme.button, ui_theme.button_border);
-    params.name          = "playground node";
-    params.text          = "one UI_Node";
-    params.foreground    = ui_theme.text;
-    params.corner_radius = 6.0;
-    params.offset        = ifx flags & .FLOATING then Vector2.{ 120, 40 } else .{};
-    params.size.width    = .{ kind = .PARENT_RATIO, value = 0.7 };
-    params.size.height   = .{ kind = .PIXELS, value = ui_row_height() * 2.0 };
-    node := ui_node("pg_node", flags, params);
-    s := ui_signal_from_node(node);
-
-    value("pg_sig", tprint("hovered %   held %", s.hovered, s.held));
-    sub("FLOATING: leaves the layout, placed at an offset");
-  split_end();
 }
 
 depth_reverse := false;
@@ -1439,6 +1315,7 @@ slide_rendering :: () {
     code(CODE_QUAD);
     code(CODE_DRAW);
     point("Text: one quad per letter, from a font texture");
+    point("Fonts and textures are handles: the UI passes them through, the app casts them back");
     point("Rounded corners, borders, soft edges: the renderer's shader");
   split_next();
     heading("Live: one node's parameters");
@@ -1466,7 +1343,7 @@ slide_recap_4 :: () {
   title("Part 4, as code: from tree to screen");
   split_begin("recap_4", 0.6);
     heading("The library (mock)");
-    code(MOCK_4);
+    code(MOCK_4, "A mock: the shape of it, not the real code");
   split_next();
     heading("The real widgets");
     ui_slider("Volume", *recap_volume, 0.0, 1.0);
@@ -1516,8 +1393,9 @@ slide_cache :: () {
   title("The cache");
   split_begin("cache");
     point("Why: nodes are rebuilt every frame, but some widget state must survive");
-    point("Who gets an entry: a node with a stable key that needs state");
-    sub("animated colours, scroll, open / closed, windows, text fields");
+    point("Who gets an entry: a node with state to keep, found by its key");
+    sub("a colour in transition, scroll, open / closed, windows, text fields");
+    point("A node at rest has nothing to keep: no entry");
     point(tprint("Cleanup: entries unused for % frames are freed", UI_CACHE_TTL_FRAMES));
     code(CODE_CACHE);
   split_next();
@@ -1531,9 +1409,9 @@ slide_cache :: () {
     ui_spacing();
     heading("Try it");
     ui_checkbox("Build 120 extra buttons", *cache_spawn);
-    point("1. On: 120 buttons, 120 new entries");
-    point("2. Off: the buttons are gone, the entries stay");
-    point(tprint("3. % frames later: freed", UI_CACHE_TTL_FRAMES));
+    point("1. On: 120 buttons, no new entries");
+    point("2. Sweep the mouse across them: an entry per button while its colour moves");
+    point(tprint("3. Leave them: once settled, freed % frames later", UI_CACHE_TTL_FRAMES));
     if cache_spawn {
       for row: 0..11 {
         ui_push_id(row);
@@ -1602,8 +1480,15 @@ slide_windows :: () {
   title("Windows and z-order");
   split_begin("windows", 0.5);
     point("A window: a node with a key; position, size and dock in its cache");
-    point("The context keeps the window order; pressing one brings it to the front");
-    point("Drawn back to front in that order, each window with the windows inside it");
+    ui_spacing();
+    heading("Windows are ordered, nodes are not");
+    point("Nodes: built later = in front. Windows can't use that:");
+    sub("the code builds them in the same order every frame");
+    point("The context keeps a window order: a list, back to front");
+    point("Pressing a window moves it, and its parents, to the end: the front");
+    point("Each window gets a depth range from its place in the list");
+    sub("its nodes count down inside it, as before");
+    point("Windows inside a window share the front of their parent's range");
     ui_spacing();
     heading("The one-frame delay");
     point("Hit-testing happens during the build, so the mouse owner comes from last frame");
@@ -1680,7 +1565,7 @@ slide_recap_5 :: () {
   title("Part 5, as code: state across frames");
   split_begin("recap_5", 0.6);
     heading("The library (mock)");
-    code(MOCK_5);
+    code(MOCK_5, "A mock: the shape of it, not the real code");
   split_next();
     heading("The real widgets");
     ui_slider("Volume", *recap_volume, 0.0, 1.0);
@@ -1753,7 +1638,7 @@ slide_composition :: () {
     canvas_params.name        = "Widget tree";
     canvas_params.spacing     = UI_STACK_SPACING;
     canvas_params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
-    canvas_params.size.height = .{ kind = .PIXELS, value = ui.metrics.line_height * 16.0 };
+    canvas_params.size.height = .{ kind = .PIXELS, value = column_height_left() };
     ui_push_parent(ui_node("comp_canvas_box", 0, canvas_params));
       ui_tree_canvas("comp", *comp_canvas, widget, live = true);
     ui_pop_parent();
@@ -1831,7 +1716,7 @@ slide_recap_6 :: () {
   title("Part 6, as code: widgets on top");
   split_begin("recap_6", 0.6);
     heading("The library (mock)");
-    code(MOCK_6);
+    code(MOCK_6, "A mock: the shape of it, not the real code");
   split_next();
     heading("The real widgets");
     ui_slider("Volume", *recap_volume, 0.0, 1.0);
@@ -1881,9 +1766,7 @@ source_browser :: () {
   ui_pop_parent();
 }
 
-demo_widgets_open := true;
-demo_ui_tree_open := true;
-demo_full_open    := false;
+demo_full_open := true;
 
 demo_tab := 0;
 
@@ -1898,27 +1781,10 @@ slide_demo :: () {
     return;
   }
 
-  ui_row_begin("demo_buttons");
-    if !demo_widgets_open || !demo_ui_tree_open {
-      if ui_button("Reopen windows").clicked {
-        demo_widgets_open = true;
-        demo_ui_tree_open = true;
-      }
-    }
-    if ui_button("Open the full widget demo").clicked {
+  if !demo_full_open {
+    if ui_button("Reopen the widget demo").clicked {
       demo_full_open = true;
     }
-  ui_row_end();
-
-  if demo_widgets_open {
-    ui_window_begin("Widgets", *demo_widgets_open, 20, 100, 380, 520);
-      demo_controls_body();
-    ui_window_end();
-  }
-  if demo_ui_tree_open {
-    ui_window_begin("UI tree", *demo_ui_tree_open, 420, 100, 760, 520);
-      demo_canvas_body();
-    ui_window_end();
   }
   ui_demo_window(*demo_full_open);
 }
@@ -1961,7 +1827,7 @@ bouncer_timer   := 0.0;
 bouncer_seed    : u32 = 12345;
 
 BOUNCER_TEXTS :: string.[
-  "?", "Rats!", "UI_Node", "hot", "active", "one draw call", "cache hit", "immediate!",
+  "?", "Rats!", "UI_Node", "hot", "active", "We are not your kind", "cache hit", "immediate!",
   "signal", "key", "quad", "60 fps", "layout", "clip", "cursor", "ui_end()", "?!", "hot & active",
 ];
 
@@ -2089,7 +1955,11 @@ value :: (id: string, text: string, loc := #caller_location) {
   text_line(id, text, ui_theme.text, ui.metrics.line_height * 0.2, false, loc);
 }
 
-code :: (text: string, loc := #caller_location) {
+// A code panel. The snippet's leading "// File.jai:line ..." lines (see src())
+// are where the code comes from: they are taken out of the code and shown in a
+// footer, together with the optional description. No description and no
+// source: no footer. footer_top puts the footer above the code instead.
+code :: (text: string, description := "", footer_top := false, loc := #caller_location) {
   clean := talloc_string(text.count);
   count := 0;
   for 0..text.count - 1 {
@@ -2100,25 +1970,172 @@ code :: (text: string, loc := #caller_location) {
   while count > 0 && clean[count - 1] == #char "\n"  count -= 1;
   clean.count = count;
 
+  sources: [..] string;
+  sources.allocator = temp;
+  while true {
+    end := find_index_from_left(clean, #char "\n");
+    if end < 0  end = clean.count;
+    first_line := string.{ end, clean.data };
+    if !begins_with(first_line, "// ") || !contains(first_line, ".jai:")  break;
+    array_add(*sources, advance(first_line, 3));
+    clean = advance(clean, min(end + 1, clean.count));
+  }
+
+  pad: float = floor(ui.metrics.line_height * 0.8);
+  has_footer: bool = description.count > 0 || sources.count > 0;
+
   params := ui_box_params(ui_theme.window_background, ui_theme.window_border);
   params.name        = "Code";
-  params.padding     = floor(ui.metrics.line_height * 0.8);
+  params.padding     = ui_theme.border_thickness;  // the footer sits inside the border
   params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
   params.size.height = .{ kind = .PIXELS, value = ui_provisional_panel_height(ui_parent()) };
   panel := ui_node("code", 0, params, loc);
   ui_push_parent(panel);
-    rest  := clean;
-    index := 0;
-    while true {
-      end := find_index_from_left(rest, #char "\n");
-      if end < 0  end = rest.count;
-      code_line(string.{ end, rest.data }, index, loc);
-      index += 1;
-      if end >= rest.count  break;
-      rest = advance(rest, end + 1);
+    if has_footer && footer_top {
+      code_footer(description, sources, pad, true, loc);
+    }
+
+    body_params: UI_Params;
+    body_params.name        = "Code body";
+    body_params.animate     = false;
+    body_params.padding     = pad;
+    body_params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
+    body_params.size.height = .{ kind = .PIXELS, value = ui_provisional_panel_height(panel) };
+    body := ui_node("code_body", 0, body_params, loc);
+    ui_push_parent(body);
+      rest  := clean;
+      index := 0;
+      while true {
+        end := find_index_from_left(rest, #char "\n");
+        if end < 0  end = rest.count;
+        code_line(string.{ end, rest.data }, index, loc);
+        index += 1;
+        if end >= rest.count  break;
+        rest = advance(rest, end + 1);
+      }
+    ui_pop_parent();
+    ui_shrink_panel_to_content(body);
+
+    if has_footer && !footer_top {
+      code_footer(description, sources, pad, false, loc);
     }
   ui_pop_parent();
   ui_shrink_panel_to_content(panel);
+}
+
+// The strip under (or over) the code: a line, then the description on the left
+// and where the code comes from on the right. All on one row when it fits;
+// otherwise the description gets its own row, then the sources (one per row if
+// they still don't fit).
+code_footer :: (description: string, sources: [] string, pad: float, top: bool, loc: Source_Code_Location) {
+  if !top  code_footer_line(loc);
+
+  inset: float = floor(ui.metrics.line_height * 0.3);
+
+  params: UI_Params;
+  params.name              = "Code footer";
+  params.animate           = false;
+  params.padding           = inset;
+  params.background.normal = ui_mix(ui_theme.window_background.normal, ui_theme.text.normal, 0.06);
+  params.corner_radius     = max(0.0, ui_theme.corner_radius - ui_theme.border_thickness);
+  params.corners           = ifx top then UI_CORNER_TL | UI_CORNER_TR else UI_CORNER_BL | UI_CORNER_BR;
+  params.size.width        = .{ kind = .PARENT_FRACTION, value = 1.0 };
+  params.size.height       = .{ kind = .PIXELS, value = ui_provisional_panel_height(ui_parent()) };
+  footer := ui_node("code_footer", 0, params, loc);
+  ui_push_parent(footer);
+    gap: float = max(0.0, pad - inset);   // lines the footer text up with the code
+    joined: string = join(..sources, separator = ", ");
+    description_width := code_text_width(description);
+    joined_width      := code_text_width(joined);
+    width: float = footer.inner.size.x - 2.0 * gap;
+
+    gap_between: float = 0.0;
+    if description && joined  gap_between = gap;
+    if description_width + gap_between + joined_width <= width {
+      code_footer_row(0, description, joined, gap, loc);
+    } else {
+      row := 0;
+      if description {
+        code_footer_row(row, description, "", gap, loc);
+        row += 1;
+      }
+      if joined_width <= width {
+        code_footer_row(row, "", joined, gap, loc);
+      } else {
+        for sources {
+          code_footer_row(row, "", it, gap, loc);
+          row += 1;
+        }
+      }
+    }
+  ui_pop_parent();
+  ui_shrink_panel_to_content(footer);
+
+  if top  code_footer_line(loc);
+}
+
+// The footer text is drawn smaller than the code.
+CODE_FOOTER_TEXT_SCALE :: 0.8;
+
+code_text_width :: (text: string) -> float {
+  if !text  return 0.0;
+  width, height := ui_measure_text(text);
+  return width * CODE_FOOTER_TEXT_SCALE;
+}
+
+code_footer_row :: (index: int, description: string, sources: string, gap: float, loc: Source_Code_Location) {
+  row_params: UI_Params;
+  row_params.name        = "Code footer row";
+  row_params.axis        = .X;
+  row_params.animate     = false;
+  row_params.size.width  = .{ kind = .PARENT_FRACTION, value = 1.0 };
+  row_params.size.height = .{ kind = .PIXELS, value = floor(ui.metrics.line_height * CODE_FOOTER_TEXT_SCALE * 1.15) };
+  row := ui_node("code_footer_row", "r", index, 0, row_params, loc);
+  ui_push_parent(row);
+    space: UI_Params;
+    space.animate     = false;
+    space.size.width  = .{ kind = .PIXELS, value = gap };
+    space.size.height = .{ kind = .PARENT_FRACTION, value = 1.0 };
+    ui_node("code_footer_gap", 0, space, loc);
+
+    if description {
+      text: UI_Params;
+      text.text        = description;
+      text.foreground  = ui_theme.text;
+      text.animate     = false;
+      text.text_scale  = CODE_FOOTER_TEXT_SCALE;
+      text.size.width  = .{ kind = .TEXT, value = 0.0 };
+      text.size.height = .{ kind = .PARENT_FRACTION, value = 1.0 };
+      ui_node("code_description", .DRAW_TEXT | .TEXT_CENTER_Y, text, loc);
+    }
+
+    if sources {
+      // Push the sources to the right edge.
+      right: float = row.inner.pos.x + row.inner.size.x - gap;
+      space.size.width = .{ kind = .PIXELS, value = max(0.0, right - row.cursor.x - code_text_width(sources)) };
+      ui_node("code_footer_push", 0, space, loc);
+
+      text: UI_Params;
+      text.text        = sources;
+      text.foreground  = .{ normal = comment_color() };
+      text.animate     = false;
+      text.text_scale  = CODE_FOOTER_TEXT_SCALE;
+      text.size.width  = .{ kind = .TEXT, value = 0.0 };
+      text.size.height = .{ kind = .PARENT_FRACTION, value = 1.0 };
+      ui_node("code_sources", .DRAW_TEXT | .TEXT_CENTER_Y, text, loc);
+    }
+  ui_pop_parent();
+}
+
+// The line between the code and its footer.
+code_footer_line :: (loc: Source_Code_Location) {
+  line: UI_Params;
+  line.name              = "Code footer line";
+  line.animate           = false;
+  line.background.normal = ui_theme.window_border.normal;
+  line.size.width        = .{ kind = .PARENT_FRACTION, value = 1.0 };
+  line.size.height       = .{ kind = .PIXELS, value = max(1.0, ui_theme.border_thickness) };
+  ui_node("code_footer_line", 0, line, loc);
 }
 
 // One line of a code block: the code, then its // comment in the comment colour.
@@ -2184,8 +2201,9 @@ hex :: (v: u64) -> string {
 
 // ---------------------------------------------------------------------------
 // Code shown on slides, in slide order. Types are written out on purpose: this
-// is about the UI architecture, not about the language. The first comment of
-// each snippet says where the real code is.
+// is about the UI architecture, not about the language. The leading comment
+// lines of each snippet say where the real code is; code() moves them into
+// the panel's footer.
 //
 // Line numbers are found by the compiler: src() runs at compile time and turns
 // every [[File.jai|some text]] into File.jai:line, the first line of that file
@@ -2245,56 +2263,41 @@ source_line :: (file: string, text: string) -> int {
 // Retained vs immediate
 
 CODE_RETAINED :: #run src(#string DONE
-// a typical retained toolkit
-save: *Button = new Button("Save");
-save.on_click = () {
-  save_document();
+// built once
+mute:   *Checkbox = new Checkbox("Mute");
+volume: *Slider   = new Slider("Volume", 0.0, 1.0);
+reset:  *Button   = new Button("Reset");
+
+mute.set_checked(settings.mute);          // copy the data in
+volume.set_value(settings.volume);
+
+mute.on_change = (checked: bool) {        // copy changes back out
+  settings.mute = checked;
+  volume.set_enabled(!checked);
 };
-panel.add(save);
+volume.on_change = (value: float) {
+  settings.volume = value;
+};
+reset.on_click = () {
+  settings = default_settings;
+  mute.set_checked(settings.mute);        // and update every widget
+  volume.set_value(settings.volume);
+  volume.set_enabled(!settings.mute);
+};
 
-// whenever the document changes:
-save.set_enabled(document.dirty);
-
-// when the panel goes away:
-panel.remove(save);
-delete save;
+panel.add(mute);
+panel.add(volume);
+panel.add(reset);
 DONE);
 
 CODE_IMMEDIATE :: #run src(#string DONE
-// [[Presentation.jai|ui_checkbox("document dirty", *rvi_dirty);]], slide_retained_vs_immediate
-ui_checkbox("document dirty", *dirty);
+// [[Presentation.jai|ui_checkbox("Mute", *rvi_settings.mute);]], slide_retained_vs_immediate
+// every frame
+ui_checkbox("Mute", *settings.mute);
+ui_slider("Volume", *settings.volume, 0.0, 1.0, disabled = settings.mute);
 
-if ui_button("Save", disabled = !dirty).clicked {
-  save_document();
-}
-DONE);
-
-// What user code looks like
-
-CODE_USER :: #run src(#string DONE
-// [[Presentation.jai|if ui_button("Click me").clicked {]], slide_live_demo
-if ui_button("Click me").clicked {
-  clicks += 1;
-}
-
-ui_label(tprint("clicked % times", clicks));
-
-ui_slider("Value", *value, 0.0, 1.0);
-
-ui_toggle("Toggle", *toggle);
-
-ui_progress_bar(value);
-
-ui_combo("Quality", *quality, qualities);
-
-ui_drag_number("Count", *count, 0.2, 0, 100);
-
-ui_text_input("Name", *name, "type a name");
-
-ui_color_edit("Colour", *colour);
-
-if toggle {
-  ui_label("Hello, Sailor!");
+if ui_button("Reset").clicked {
+  settings = default_settings;
 }
 DONE);
 
@@ -2309,9 +2312,8 @@ while !app.should_quit {
   input.dt            = seconds_since_last_frame;
 
   metrics: UI_Metrics;
-  metrics.font         = cast(UI_Font) font;
-  metrics.measure_text = ui_measure_text;
-  metrics.get_glyph    = ui_get_glyph;
+  metrics.font      = cast(UI_Font) font;
+  metrics.get_glyph = ui_get_glyph;
 
   ui_begin(input, metrics);
   presentation();
@@ -2324,24 +2326,18 @@ while !app.should_quit {
 DONE);
 
 CODE_APP_PROVIDES :: #run src(#string DONE
-// [[Imgui_Backend.jai|ui_measure_text :: (font: UI_Font]]
-ui_measure_text :: (font: UI_Font, text: string) -> (width: float, height: float);
-
 // [[Imgui_Backend.jai|ui_get_glyph :: (]]
+// [[Core.jai|UI_Glyph :: struct {]]
 ui_get_glyph :: (font: UI_Font, codepoint: u32) -> (found: bool, glyph: UI_Glyph);
-DONE);
 
-// Handles: how the UI talks to the renderer
-
-CODE_HANDLES :: #run src(#string DONE
-// [[Core.jai|UI_Font    :: #type,distinct *void;]]
-UI_Font    :: #type,distinct *void;
-UI_Texture :: #type,distinct *void;
-DONE);
-
-CODE_HANDLES_APP :: #run src(#string DONE
-// [[Imgui_Backend.jai|metrics.font         = cast(UI_Font) ui_font;]]
-metrics.font = cast(UI_Font) ui_font;   // the app's *Font, as a handle
+UI_Glyph :: struct {
+  texture: UI_Texture;   // where the letter's pixels are
+  uv_min:  Vector2;
+  uv_max:  Vector2;
+  size:    Vector2;
+  bearing: Vector2;      // from the pen to the letter's top-left
+  advance: float;        // how far the pen moves
+}
 DONE);
 
 // UI_Context
@@ -2368,7 +2364,8 @@ DONE);
 // Part 2 recap
 
 MOCK_2 :: #string DONE
-// mock: the shape of it, not the real code
+// + part 2: the UI font type is an opaque pointer
+UI_Font :: #type,distinct *void;
 
 // + part 2: what the app saw this frame
 UI_Input :: struct {
@@ -2378,17 +2375,17 @@ UI_Input :: struct {
   dt:            float;
 }
 
-// + part 2: the font, as a handle
+// + part 2: the font, and its letters
 UI_Metrics :: struct {
-  font:         UI_Font;
-  measure_text: (font: UI_Font, text: string) -> float;
+  font:      UI_Font;
+  get_glyph: (font: UI_Font, codepoint: u32) -> UI_Glyph;   // the app's letters
 }
 
 // + part 2: the UI's own state
 UI_Context :: struct {
   input:   UI_Input;
   metrics: UI_Metrics;
-  quads:   [..] UI_Quad;                      // what the app will draw
+  quads:   [..] UI_Quad;
 }
 ui: UI_Context;
 
@@ -2401,7 +2398,7 @@ ui_begin :: (input: UI_Input, metrics: UI_Metrics) {
 
 // + part 2
 ui_end :: () {
-  // turn this frame's UI into quads (part 4)
+
 }
 DONE
 
@@ -2442,28 +2439,6 @@ UI_Node :: struct {
 }
 DONE);
 
-CODE_INTRUSIVE :: #run src(#string DONE
-// [[Core.jai|node.parent = parent;]], ui_node_keyed: link the new node in
-node.parent = parent;
-if parent.last {
-  parent.last.next = node;
-  node.prev        = parent.last;
-  parent.last      = node;
-} else {
-  parent.first = node;
-  parent.last  = node;
-}
-DONE);
-
-CODE_WALK :: #run src(#string DONE
-// [[Core.jai|ui_emit_children :: (node: *UI_Node, alpha: float, disabled: bool) {]], ui_emit_children
-child: *UI_Node = node.first;
-while child {
-  ui_emit(child);
-  child = child.next;
-}
-DONE);
-
 // Building the tree (the root)
 
 CODE_ROOT :: #run src(#string DONE
@@ -2494,20 +2469,6 @@ ui_pop_parent();
 DONE);
 
 
-// Where nodes live
-
-CODE_ALLOC :: #run src(#string DONE
-// [[Core.jai|ui_allocate_node :: () -> *UI_Node {]]
-ui_allocate_node :: () -> *UI_Node {
-  node: *UI_Node = get(*ui.frame_pool, size_of(UI_Node));
-  node.* = .{};
-  return node;
-}
-
-// [[Core.jai|reset(*ui.frame_pool);]], ui_begin: last frame's nodes, all freed at once
-reset(*ui.frame_pool);
-DONE);
-
 // Keys
 
 CODE_KEY_SAME_TEXT :: #run src(#string DONE
@@ -2530,8 +2491,6 @@ DONE);
 // Part 3 recap
 
 MOCK_3 :: #string DONE
-// mock: the shape of it, not the real code
-
 UI_Input :: struct {
   screen_size:   Vector2;
   mouse_pos:     Vector2;
@@ -2540,8 +2499,8 @@ UI_Input :: struct {
 }
 
 UI_Metrics :: struct {
-  font:         UI_Font;
-  measure_text: (font: UI_Font, text: string) -> float;
+  font:      UI_Font;
+  get_glyph: (font: UI_Font, codepoint: u32) -> UI_Glyph;   // the app's letters
 }
 
 // + part 3: the node, the only primitive
@@ -2614,12 +2573,12 @@ DONE
 
 CODE_UI_NODE ::#run src(#string DONE
 // [[Core.jai|ui_node :: (id: string, flags: UI_Node_Flags]]
+// [[Core.jai|ui_node_keyed :: (]] (simplified)
 ui_node :: (id: string, flags: UI_Node_Flags, params: UI_Params) -> *UI_Node {
   key: u64 = ui_scoped_key(id, call_site);    // 1. key
   return ui_node_keyed(key, flags, params);
 }
 
-// [[Core.jai|ui_node_keyed :: (]] (simplified)
 ui_node_keyed :: (key: u64, flags: UI_Node_Flags, params: UI_Params) -> *UI_Node {
   parent: *UI_Node = ui_parent();             // 2. top of the parent stack
 
@@ -2715,30 +2674,16 @@ UI_Node_Flags :: enum_flags {
 }
 DONE);
 
-CODE_FLAG_BUTTON :: #run src(#string DONE
-// [[Presentation.jai|flag_button :: (text: string]] (simplified)
-flag_button :: (text: string) -> bool {
-  flags: UI_Node_Flags = .CLICKABLE | .HOVERABLE | .DRAW_TEXT;
-  params: UI_Params = ui_box_params(ui_theme.button, ui_theme.button_border);
-  params.text = text;
-  node: *UI_Node = ui_node(text, flags, params);
-  return ui_signal_from_node(node).clicked;
-}
-
-// [[Presentation.jai|if flag_button("Save") {]], the user code
-if flag_button("Save") {
-  saves += 1;
-}
-DONE);
-
 // Depth instead of sorting
 
 CODE_DEPTH :: #run src(#string DONE
-// [[Core.jai|node.depth  = ui.next_depth;]], ui_node_keyed
+// [[Core.jai|node.depth  = ui.next_depth;]]
+// [[Core.jai|if over && hoverable && node.depth <= ui.hot_depth {]]
+// ui_node_keyed
 node.depth = ui.next_depth;
 ui.next_depth -= UI_DEPTH_EPSILON;   // the next node is a bit more in front
 
-// [[Core.jai|if over && hoverable && node.depth <= ui.hot_depth {]], ui_interact
+// ui_interact
 if over && hoverable && node.depth <= ui.hot_depth {
   ui.hot_key   = node.key;           // the front-most so far wins
   ui.hot_depth = node.depth;
@@ -2775,7 +2720,6 @@ UI_Signal :: struct {
 DONE);
 
 CODE_SIGNAL_CLASSIC ::#run src(#string DONE
-// Dear ImGui (C++)
 if (ImGui::Button("Save")) {
   save();
 }
@@ -2811,15 +2755,17 @@ UI_Quad :: struct {
 DONE);
 
 CODE_DRAW :: #run src(#string DONE
-// [[Imgui_Backend.jai|ui_draw :: () {]] (simplified)
+// [[Imgui_Backend.jai|ui_draw :: () {]]
 ui_draw :: () {
-  quads: [] UI_Quad = ui_quads();
-  for quad: quads {
-    texture: *Texture = cast(*Texture) quad.texture;   // our handle, back again
-    r_push_clip_rect(quad.clip);
-    r_draw_screen_quad(quad.rect, quad.color, texture,
-                       quad.corner_radius, quad.rotation);
-    r_pop_clip_rect();
+  for quad: ui_quads() {
+    texture := cast(*Texture) quad.texture;   // the handle we gave the UI, back again
+    r_push_clip_rect(*renderer, quad.clip.pos, quad.clip.size);
+    r_draw_screen_quad(*renderer, quad.rect.pos, quad.rect.size, tint = quad.color, texture = texture, 
+                        uv_min = quad.uv_min, uv_max = quad.uv_max,
+                        border_thickness = quad.border_thickness, border_color = quad.border_color, 
+                        border_radius = quad.corner_radius,
+                        rotation = quad.rotation, corners = quad.corner_mask);
+    r_pop_clip_rect(*renderer);
   }
 }
 DONE);
@@ -2828,8 +2774,6 @@ DONE);
 // Part 4 recap
 
 MOCK_4 :: #string DONE
-// mock: the shape of it, not the real code
-
 UI_Input :: struct {
   screen_size:   Vector2;
   mouse_pos:     Vector2;
@@ -2838,8 +2782,8 @@ UI_Input :: struct {
 }
 
 UI_Metrics :: struct {
-  font:         UI_Font;
-  measure_text: (font: UI_Font, text: string) -> float;
+  font:      UI_Font;
+  get_glyph: (font: UI_Font, codepoint: u32) -> UI_Glyph;   // the app's letters
 }
 
 UI_Node :: struct {
@@ -2981,10 +2925,11 @@ DONE);
 // The cache
 
 CODE_CACHE ::#run src(#string DONE
-// [[Core.jai|caches: Table(u64, *UI_Node_Cache]], UI_Context
+// [[Core.jai|caches: Table(u64, *UI_Node_Cache]]
+// [[Core.jai|UI_Node_Cache :: struct {]] (simplified)
+// UI_Context
 caches: Table(u64, *UI_Node_Cache);   // key -> state
 
-// [[Core.jai|UI_Node_Cache :: struct {]] (simplified)
 UI_Node_Cache :: struct {
   last_touched: u64;      // the last frame it was used
   scroll:       float;
@@ -2999,17 +2944,20 @@ DONE);
 
 CODE_ANIMATION :: #run src(#string DONE
 // [[Core.jai|ui_animation_t :: (dt: float) -> float {]]
+// [[Core.jai|cache.animated_background = ui_mix(cache.animated_background, background, t);]]
+// [[Widgets.jai|cache.disclosure_t += (target - cache.disclosure_t) * dt;]]
+// ui_animation_t
 speed: float = ui_theme.transition_speed;
 t: float = 1.0 - exp(-dt * speed);   // the fraction to move this frame
 
-// [[Core.jai|cache.animated_background = ui_mix(cache.animated_background, background, t);]], ui_emit (simplified)
+// ui_emit
 target: Vector4 = node.background.normal;
 if hovered {
   target = node.background.hover;
 }
 cache.animated_background += (target - cache.animated_background) * t;
 
-// [[Widgets.jai|cache.disclosure_t += (target - cache.disclosure_t) * dt;]], ui_collapsing_header (simplified)
+// ui_collapsing_header
 target_open: float = 0.0;
 if cache.expanded {
   target_open = 1.0;
@@ -3021,22 +2969,22 @@ DONE);
 // Windows and z-order (the one-frame delay)
 
 CODE_DELAY :: #run src(#string DONE
-// [[Core.jai|over := under && node.panel == ui.mouse_panel;]], ui_interact (simplified)
+// [[Core.jai|over := under && node.panel == ui.mouse_panel;]] (simplified)
+// [[Core.jai|ui.mouse_panel = ui.mouse_panel_next;]]
+// ui_interact
 if under && node.depth < ui.mouse_panel_depth {
   ui.mouse_panel_next  = node.panel;   // front-most window under the mouse, this frame
   ui.mouse_panel_depth = node.depth;
 }
 over: bool = under && node.panel == ui.mouse_panel;   // decided last frame
 
-// [[Core.jai|ui.mouse_panel = ui.mouse_panel_next;]], ui_end
+// ui_end
 ui.mouse_panel = ui.mouse_panel_next;   // ready for next frame
 DONE);
 
 // Part 5 recap
 
 MOCK_5 :: #string DONE
-// mock: the shape of it, not the real code
-
 UI_Input :: struct {
   screen_size:   Vector2;
   mouse_pos:     Vector2;
@@ -3045,8 +2993,8 @@ UI_Input :: struct {
 }
 
 UI_Metrics :: struct {
-  font:         UI_Font;
-  measure_text: (font: UI_Font, text: string) -> float;
+  font:      UI_Font;
+  get_glyph: (font: UI_Font, codepoint: u32) -> UI_Glyph;   // the app's letters
 }
 
 UI_Node :: struct {
@@ -3284,6 +3232,7 @@ DONE);
 
 CODE_POOL_WIDGET :: #run src(#string DONE
 // [[Custom_Widgets.jai|ui_flat_pool :: (id: string, pool: *Flat_Pool, loc := #caller_location) {]] (simplified)
+// [[Custom_Widgets.jai|pool_bar ::(id: string, salt: string, used: s64, committed: s64, total: s64, overlay: string, used_tip: string, free_tip: string, uncommitted_tip: string, loc: Source_Code_Location) {]]
 ui_flat_pool :: (name: string, pool: *Flat_Pool) {
   panel: *UI_Node = ui_node(name, "panel", 0, bordered_params);
   ui_push_parent(panel);
@@ -3293,7 +3242,6 @@ ui_flat_pool :: (name: string, pool: *Flat_Pool) {
   ui_pop_parent();
 }
 
-// [[Custom_Widgets.jai|pool_bar ::(id: string, salt: string, used: s64, committed: s64, total: s64, overlay: string, used_tip: string, free_tip: string, uncommitted_tip: string, loc: Source_Code_Location) {]] (simplified)
 pool_bar :: (name: string, salt: string, used: int, committed: int, total: int) {
   track: *UI_Node = ui_node(name, salt, 0, track_params);
   ui_push_parent(track);
@@ -3308,6 +3256,7 @@ DONE);
 
 CODE_PARAMS :: #run src(#string DONE
 // [[Core.jai|UI_Params :: struct {]] (simplified)
+// [[Core.jai|node.params = params;]]
 UI_Params :: struct {
   size:    UI_Box_Size;
   padding: float;
@@ -3321,17 +3270,20 @@ UI_Params :: struct {
   ...
 }
 
-// [[Core.jai|node.params = params;]], ui_node_keyed: a copy, per node
+// ui_node_keyed: a copy, per node
 node.params = params;
 DONE);
 
 CODE_STYLE :: #run src(#string DONE
-// [[Presentation.jai|params.background    = .{ normal = style_color };]], one node
+// [[Presentation.jai|params.background    = .{ normal = style_color };]]
+// [[Presentation.jai|themed_window :: (]]
+// [[Presentation.jai|ui_set_theme(ui_theme_from_palette(palette));]]
+// one node
 params.background    = .{ normal = style_color };
 params.corner_radius = style_radius;
 ui_node("styled node", flags, params);
 
-// [[Presentation.jai|themed_window :: (]] (simplified), one window
+// one window
 saved: UI_Theme = ui_theme;
 ui_theme = ui_theme_from_palette(palette);   // once, before the window
 ui_window_begin(title, ...);
@@ -3339,15 +3291,13 @@ ui_window_begin(title, ...);
 ui_window_end();
 ui_theme = saved;
 
-// [[Presentation.jai|ui_set_theme(ui_theme_from_palette(palette));]], everything
+// everything
 ui_set_theme(ui_theme_from_palette(palette));
 DONE);
 
 // Part 6 recap
 
 MOCK_6 :: #string DONE
-// mock: the shape of it, not the real code
-
 UI_Input :: struct {
   screen_size:   Vector2;
   mouse_pos:     Vector2;
@@ -3356,8 +3306,8 @@ UI_Input :: struct {
 }
 
 UI_Metrics :: struct {
-  font:         UI_Font;
-  measure_text: (font: UI_Font, text: string) -> float;
+  font:      UI_Font;
+  get_glyph: (font: UI_Font, codepoint: u32) -> UI_Glyph;   // the app's letters
 }
 
 UI_Node :: struct {
